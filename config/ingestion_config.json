@@ -1,0 +1,90 @@
+{
+  "batch": [
+    {
+      "datasource": "farmia",
+      "dataset": "ventas",
+      "source": {
+        "format": "json",
+        "path": "/landing/ventas",
+        "schema_hints": "id long, producto string, cantidad integer, fecha string"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/bronze/ventas",
+        "partition_columns": ["fecha"]
+      }
+    },
+    {
+      "datasource": "farmia",
+      "dataset": "inventario",
+      "source": {
+        "format": "csv",
+        "path": "/landing/inventario",
+        "schema_hints": "id_producto long, stock integer, fecha string"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/bronze/inventario",
+        "partition_columns": ["fecha"]
+      }
+    },
+    {
+      "datasource": "farmia",
+      "dataset": "meteorologia",
+      "source": {
+        "format": "parquet",
+        "path": "/landing/meteorologia",
+        "schema_hints": "fecha string, temperatura double, humedad double"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/bronze/meteorologia",
+        "partition_columns": ["fecha"]
+      }
+    }
+  ],
+  "streaming": [
+    {
+      "datasource": "farmia",
+      "dataset": "eventos_clientes",
+      "source": {
+        "format": "kafka",
+        "options": {
+          "subscribe": "eventos_clientes",
+          "startingOffsets": "latest"
+        },
+        "key_format": "string",
+        "key_subject": "eventos_clientes-key",
+        "value_format": "json",
+        "value_subject": "eventos_clientes-value",
+        "json_schema": "id long, cliente_id long, evento string, timestamp string"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/bronze/eventos_clientes",
+        "partition_columns": []
+      }
+    },
+    {
+      "datasource": "farmia",
+      "dataset": "sensores_iot",
+      "source": {
+        "format": "kafka",
+        "options": {
+          "subscribePattern": "sensores_.*",
+          "startingOffsets": "latest"
+        },
+        "key_format": "string",
+        "key_subject": "sensores-key",
+        "value_format": "json",
+        "value_subject": "sensores-value",
+        "json_schema": "sensor_id string, temperatura double, humedad double, timestamp string"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/bronze/sensores_iot",
+        "partition_columns": []
+      }
+    }
+  ]
+}
