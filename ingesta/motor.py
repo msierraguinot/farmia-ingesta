@@ -22,12 +22,12 @@ class MotorIngesta:
         for query in queries:
             query.awaitTermination()
 
-    def ejecutar_streaming(self):
+    def ejecutar_streaming(self, available_now: bool = False):
         queries = []
 
         for ingestion_config in self.config.get("streaming", []):
             df = read_streaming(self.spark, ingestion_config)
-            query = write_streaming(ingestion_config, df)
+            query = write_streaming(ingestion_config, df, available_now)
             queries.append(query)
 
         return queries

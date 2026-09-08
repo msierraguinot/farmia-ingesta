@@ -38,7 +38,7 @@ def read_batch(
 
     return (
         df
-        .withColumn("_ingested_filename", F.input_file_name())
+        .withColumn("_ingested_filename", F.col("_metadata.file_path"))
         .withColumn("_ingested_at", F.current_timestamp())
     )
 

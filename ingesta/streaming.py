@@ -1,22 +1,25 @@
 from pyspark.sql import DataFrame, SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.avro.functions import from_avro
-from confluent_kafka.schema_registry import SchemaRegistryClient
 
 
-schema_registry_url = "url"
-schema_registry_username = "key"
-schema_registry_password = "password"
+def _get_schema_registry_client():
+    """
+    Crea un cliente de Schema Registry.
+    """
+    from confluent_kafka.schema_registry import SchemaRegistryClient
 
-schema_registry_conf = {
-    "url": schema_registry_url,
-    "basic.auth.user.info": (
-        f"{schema_registry_username}:{schema_registry_password}"
-    )
-}
+    schema_registry_url = "url"
+    schema_registry_username = "key"
+    schema_registry_password = "password"
 
-schema_registry_client = SchemaRegistryClient(schema_registry_conf)
-
+    schema_registry_conf = {
+        "url": schema_registry_url,
+        "basic.auth.user.info": (
+            f"{schema_registry_username}:{schema_registry_password}"
+        )
+    }
+    return SchemaRegistryClient(schema_registry_conf)
 
 def read_streaming(
     spark: SparkSession,
@@ -98,7 +101,8 @@ def read_streaming(
 
 def write_streaming(
     ingestion_config: dict,
-    df: DataFrame
+    df: DataFrame,
+    available_now: bool = False
 ):
     """
     Escribe los datos de Kafka en la capa Bronze.
@@ -121,5 +125,8 @@ def write_streaming(
 
     if partition_columns:
         writer = writer.partitionBy(*partition_columns)
+
+    if available_now:
+        writer = writer.trigger(availableNow=True)
 
     return writer.start(destination_path)
