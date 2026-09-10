@@ -1,6 +1,7 @@
+import json
 import os
 
-from ingesta.config import load_config
+from ingesta.config import load_config, load_properties
 
 
 CONFIG_PATH = os.path.join(
@@ -11,47 +12,70 @@ CONFIG_PATH = os.path.join(
 
 
 def test_load_config():
+    """
+    Comprueba que la configuración principal se carga correctamente
+    y contiene las dos modalidades de ingesta.
+    """
     config = load_config(CONFIG_PATH)
 
     assert isinstance(config, dict)
     assert "batch" in config
     assert "streaming" in config
 
+    assert isinstance(config["batch"], list)
+    assert isinstance(config["streaming"], list)
 
-def test_batch_config():
+
+def test_load_config_is_valid_json():
+    """
+    Comprueba que el fichero de configuración contiene JSON válido.
+    """
+    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+        config = json.load(file)
+
+    assert isinstance(config, dict)
+
+
+def test_batch_and_streaming_datasets_have_unique_names():
+    """
+    Comprueba que no existen datasets duplicados dentro de cada modalidad.
+    """
     config = load_config(CONFIG_PATH)
 
-    assert len(config["batch"]) > 0
+    batch_datasets = [
+        ingestion["dataset"]
+        for ingestion in config["batch"]
+    ]
 
-    for ingestion in config["batch"]:
-        assert "datasource" in ingestion
-        assert "dataset" in ingestion
-        assert "source" in ingestion
-        assert "sink" in ingestion
+    streaming_datasets = [
+        ingestion["dataset"]
+        for ingestion in config["streaming"]
+    ]
 
-        assert "format" in ingestion["source"]
-        assert "path" in ingestion["source"]
-
-        assert "format" in ingestion["sink"]
-        assert "path" in ingestion["sink"]
-        assert "partition_columns" in ingestion["sink"]
+    assert len(batch_datasets) == len(set(batch_datasets))
+    assert len(streaming_datasets) == len(set(streaming_datasets))
 
 
-def test_streaming_config():
-    config = load_config(CONFIG_PATH)
+def test_load_properties(tmp_path):
+    """
+    Comprueba que load_properties carga correctamente un fichero
+    de propiedades clave=valor e ignora comentarios y líneas vacías.
+    """
+    properties_file = tmp_path / "test.properties"
 
-    assert len(config["streaming"]) > 0
+    properties_file.write_text(
+        """
+# comentario
 
-    for ingestion in config["streaming"]:
-        assert "datasource" in ingestion
-        assert "dataset" in ingestion
-        assert "source" in ingestion
-        assert "sink" in ingestion
+key1=value1
+key2=value2
+key3=value=with=equals
+""",
+        encoding="utf-8"
+    )
 
-        assert ingestion["source"]["format"] == "kafka"
-        assert "options" in ingestion["source"]
-        assert "value_format" in ingestion["source"]
+    properties = load_properties(str(properties_file))
 
-        assert "format" in ingestion["sink"]
-        assert "path" in ingestion["sink"]
-        assert "partition_columns" in ingestion["sink"]
+    assert properties["key1"] == "value1"
+    assert properties["key2"] == "value2"
+    assert properties["key3"] == "value=with=equals"

@@ -41,6 +41,33 @@
         "path": "/Volumes/mastermsg001dbr/default/bronze/meteorologia",
         "partition_columns": ["fecha"]
       }
+    },
+    {
+      "datasource": "farmia",
+      "dataset": "proveedores",
+      "source": {
+        "format": "avro",
+        "path": "/Volumes/mastermsg001dbr/default/landing/proveedores",
+        "schema_hints": "id_proveedor long, nombre string, fecha string"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/Volumes/mastermsg001dbr/default/bronze/proveedores",
+        "partition_columns": ["fecha"]
+      }
+    },
+    {
+      "datasource": "farmia",
+      "dataset": "imagenes",
+      "source": {
+        "format": "binaryFile",
+        "path": "/Volumes/mastermsg001dbr/default/landing/imagenes"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/Volumes/mastermsg001dbr/default/bronze/imagenes",
+        "partition_columns": []
+      }
     }
   ],
   "streaming": [
@@ -49,23 +76,41 @@
       "dataset": "eventos_clientes",
       "source": {
         "format": "kafka",
+        "kafka_properties_file": "config/client.properties",
         "options": {
           "subscribe": "eventos_clientes",
-          "startingOffsets": "earliest",
-          "kafka.bootstrap.servers": "pkc-619z3.us-east1.gcp.confluent.cloud:9092",
-          "kafka.security.protocol": "SASL_SSL",
-          "kafka.sasl.mechanism": "PLAIN",
-          "kafka.sasl.jaas.config": "kafkashaded.org.apache.kafka.common.security.plain.PlainLoginModule required username='4MFDPRDFINCDFBQZ' password='cfltC3Nq/hGnG7rolufdJiaaNhitmxSQlD05QPDDEZOZYLPaqFF/EIvVtM0a3q9w';"
+          "startingOffsets": "earliest"
         },
         "key_format": "string",
         "key_subject": "eventos_clientes-key",
-        "value_format": "json",
-        "value_subject": "eventos_clientes-value",
-        "json_schema": "id long, cliente_id long, evento string, timestamp string"
+        "value_format": "avro",
+        "value_subject": "eventos_clientes-value"
       },
       "sink": {
         "format": "delta",
         "path": "/Volumes/mastermsg001dbr/default/bronze/eventos_clientes",
+        "partition_columns": []
+      }
+    },
+    {
+      "datasource": "farmia",
+      "dataset": "sensores_iot",
+      "source": {
+        "format": "kafka",
+        "kafka_properties_file": "config/client.properties",
+        "options": {
+          "subscribePattern": "sensores_.*",
+          "startingOffsets": "earliest"
+        },
+        "key_format": "string",
+        "key_subject": "sensores-key",
+        "value_format": "json",
+        "value_subject": "sensores-value",
+        "json_schema": "sensor_id string, temperatura double, humedad double, timestamp string"
+      },
+      "sink": {
+        "format": "delta",
+        "path": "/Volumes/mastermsg001dbr/default/bronze/sensores_iot",
         "partition_columns": []
       }
     }
