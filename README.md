@@ -35,7 +35,7 @@ La solución utiliza **Azure Databricks**, **Databricks Auto Loader**, **Delta L
 
 El objetivo es desarrollar un motor de ingesta basado en **Apache Spark** capaz de procesar datos batch y streaming y llevarlos hasta la capa **Bronze** del Lakehouse.
 
-El enunciado establece que el motor batch debe ejecutarse inicialmente **cada hora**, mientras que la parte streaming debe mantener consultas activas para procesar eventos **en tiempo real**.
+El motor batch se ejecuta inicialmente **cada hora**, mientras que la parte streaming mantiene consultas activas para procesar eventos **en tiempo real**.
 
 ### Arquitectura
 
@@ -87,7 +87,7 @@ El enunciado establece que el motor batch debe ejecutarse inicialmente **cada ho
 - **Silver:** futura capa de limpieza, normalización y transformación.
 - **Gold:** futura capa orientada al análisis y consumo de negocio.
 
-El enunciado exige el flujo `Landing → Bronze`, pero no especifica una tecnología concreta para almacenar físicamente estas capas. En este proyecto se utilizan **Unity Catalog Volumes** porque es la solución utilizada en el entorno Databricks disponible. Por tanto, las rutas son configurables y podrían adaptarse a otra ubicación de almacenamiento sin cambiar la lógica del motor.
+En este proyecto se utilizan **Unity Catalog Volumes** porque es la solución utilizada en el entorno Databricks disponible. Por tanto, las rutas son configurables y podrían adaptarse a otra ubicación de almacenamiento sin cambiar la lógica del motor.
 
 ---
 
@@ -310,8 +310,6 @@ eventos_clientes-value
 
 El motor utiliza el `value_subject` definido en la configuración para obtener el esquema correspondiente.
 
-La ventaja es que el esquema de los mensajes Avro se gestiona de forma centralizada en Schema Registry en lugar de tener que incluirlo directamente en cada mensaje.
-
 ---
 
 ## 3.4. Credenciales
@@ -324,9 +322,7 @@ config/client.properties
 
 Este fichero contiene las propiedades necesarias para conectar con Kafka y, cuando se utiliza Avro, con Schema Registry.
 
-No se deben publicar credenciales personales en Git.
-
-Para entregar el proyecto al profesor se puede incluir el fichero con los datos de conexión necesarios, sustituyendo previamente el usuario, contraseña, API keys y secretos personales por los valores que correspondan al entorno del profesor.
+Es necesario especificar las credenciales de la API-key de Kafka y Schema Registry.
 
 ---
 
