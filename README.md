@@ -25,9 +25,8 @@ La solución utiliza **Azure Databricks**, **Databricks Auto Loader**, **Delta L
   - [5.3. Ejecución Streaming](#53-ejecución-streaming)
   - [5.4. Ejecución de los tests](#54-ejecución-de-los-tests)
 - [6. Añadir nuevos datasets](#6-añadir-nuevos-datasets)
-- [7. Decisiones técnicas y buenas prácticas](#7-decisiones-técnicas-y-buenas-prácticas)
-- [8. Correspondencia con los requisitos](#8-correspondencia-con-los-requisitos)
-- [9. Resumen](#9-resumen)
+- [7. Correspondencia con los requisitos](#7-correspondencia-con-los-requisitos)
+- [8. Resumen](#8-resumen)
 
 ---
 
