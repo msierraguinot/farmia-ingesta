@@ -692,3 +692,7 @@ El motor creará automáticamente la nueva Streaming Query.
 | Manejo de errores | Excepciones específicas |
 
 ---
+## Autor
+
+**María Sierra Guinot**  
+📧 msierraguinot@gmail.com
