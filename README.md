@@ -4,7 +4,7 @@ Motor de ingesta desarrollado en **Python y Apache Spark** para implementar las 
 
 La solución utiliza **Azure Databricks**, **Databricks Auto Loader**, **Delta Lake**, **Apache Kafka** y **Confluent Schema Registry**.
 
----
+--- 
 
 ## Índice
 
@@ -364,7 +364,7 @@ Spark
 Bronze / Delta
 ```
 
-El enunciado establece que el motor batch debe ejecutarse **cada hora**. Esta periodicidad no se implementa con un bucle dentro de Python, sino mediante la planificación de **Databricks Jobs**:
+El motor batch debe ejecutarse **cada hora**. Esta periodicidad no se implementa con un bucle dentro de Python, sino mediante la planificación de **Databricks Jobs**:
 
 ```text
 Databricks Job
@@ -378,8 +378,6 @@ Landing → Bronze
 ```
 
 En cada ejecución, Auto Loader procesa los nuevos ficheros pendientes y el checkpoint permite mantener el estado de cada dataset.
-
-En Databricks, la configuración se realiza creando un Job, añadiendo la tarea que ejecuta el motor y seleccionando un trigger **Scheduled** con una periodicidad de **1 hora**. 
 
 ---
 
@@ -401,7 +399,7 @@ Spark Structured Streaming
 Bronze / Delta
 ```
 
-A diferencia del batch, el streaming **no se programa cada hora**. Una Streaming Query se inicia y permanece activa mientras el proceso siga ejecutándose. Cuando llegan nuevos mensajes a Kafka, Spark los va procesando mediante micro-batches. Si no se indica ningún trigger explícito, Structured Streaming ejecuta el siguiente micro-batch tan pronto como termina el anterior y hay datos disponibles. 
+A diferencia del batch, el streaming **no se programa cada hora**, sino que se inicia y permanece activa mientras el proceso siga ejecutándose.
 
 En este proyecto, la llamada:
 
@@ -418,13 +416,7 @@ for dataset, query in queries:
     query.awaitTermination()
 ```
 
-En un despliegue continuo, la query seguirá funcionando hasta que se detenga, falle o se cancele el proceso. Por tanto, no necesita una planificación horaria como el batch.
-
-### Streaming en Databricks
-
-Para un entorno de Databricks con soporte para Structured Streaming continuo, se puede ejecutar el motor como un Job configurado en modo **Continuous**, pensado para cargas que deben permanecer activas. Databricks recomienda este modo para workloads de streaming siempre activos. 
-
-Otra posibilidad es gestionar la permanencia del proceso desde el propio código mediante `awaitTermination()`.
+En un despliegue continuo, la query seguirá funcionando hasta que se detenga, falle o se cancele el proceso.
 
 ### `availableNow`
 
@@ -436,13 +428,13 @@ queries, errores = motor.ejecutar_streaming(
 )
 ```
 
-`availableNow` procesa todos los datos disponibles en ese momento, utilizando uno o varios micro-batches, y después termina la query. Por tanto, **no es el modo continuo** del ejercicio; resulta útil para una ejecución puntual o incremental. 
+`availableNow` procesa todos los datos disponibles en ese momento, utilizando uno o varios micro-batches, y después termina la query. 
 
 ### Importante en el entorno Serverless utilizado
 
 Durante el desarrollo se ha utilizado Databricks Serverless. En este entorno no están soportados los triggers `ProcessingTime` y `Continuous` de Structured Streaming; `AvailableNow` es el trigger recomendado. Para un patrón continuo en Serverless, Databricks ofrece la opción de ejecutar Jobs en modo **Continuous** con triggers acotados como `AvailableNow`, o utilizar pipelines Lakeflow en modo continuo. 
 
-Esto explica por qué durante las pruebas del proyecto se utiliza `available_now=True`: permite ejecutar la ingesta streaming en el entorno Serverless disponible. En un cluster que permita Structured Streaming continuo, se puede utilizar la modalidad continua descrita anteriormente, que es la que refleja directamente el requisito del ejercicio.
+Esto explica por qué durante las pruebas del proyecto se utiliza `available_now=True`: permite ejecutar la ingesta streaming en el entorno Serverless disponible. En un cluster que permita Structured Streaming continuo, se puede utilizar la modalidad continua descrita anteriormente.
 
 ---
 
@@ -501,7 +493,7 @@ Las carpetas de los datasets deben coincidir con las rutas definidas en `ingesti
 
 Comprobar que `config/client.properties` contiene las propiedades necesarias para conectarse a Kafka y, cuando se utilice Avro, a Schema Registry.
 
-No deben publicarse credenciales personales en Git.
+Especificar las credenciales de la API-key de Kafka y Schema Registry en el archivo client.properties
 
 ---
 
@@ -538,25 +530,6 @@ Spark
 Bronze / Delta
 ```
 
-### Ejecución cada hora
-
-El requisito del ejercicio es que la ingesta batch se ejecute **cada hora**.
-
-La forma recomendada es configurar un **Databricks Job** que ejecute el código anterior con esta periodicidad:
-
-```text
-Databricks Job
-      │
-      │ cada 1 hora
-      ▼
-MotorIngesta.ejecutar_batch()
-      │
-      ▼
-Landing → Bronze
-```
-
-El código del motor no necesita implementar un bucle de 60 minutos. La periodicidad pertenece al mecanismo de planificación de Databricks.
-
 ---
 
 ## 5.3. Ejecución Streaming
@@ -592,7 +565,7 @@ Spark Structured Streaming
 Bronze / Delta
 ```
 
-Los nuevos eventos se van procesando a medida que están disponibles; **no se necesita programar una ejecución cada hora** como en batch.
+Los nuevos eventos se van procesando a medida que están disponibles.
 
 Para mantener explícitamente el proceso esperando a que las queries sigan activas:
 
@@ -614,24 +587,6 @@ queries, errores = motor.ejecutar_streaming(
 ```
 
 En este modo se procesan los datos disponibles y las queries terminan cuando finaliza el trabajo pendiente.
-
-Por tanto:
-
-```text
-Batch
-→ ejecución puntual
-→ programada cada hora mediante Databricks Job
-
-Streaming normal
-→ queries activas
-→ procesa nuevos eventos mientras permanece activo
-
-Streaming availableNow
-→ procesa lo disponible
-→ finaliza al terminar
-```
-
-Para el requisito de streaming en tiempo real del ejercicio, la modalidad principal es la **ejecución continua**.
 
 ---
 
@@ -661,7 +616,7 @@ pytest -v
 
 # 6. Añadir nuevos datasets
 
-Una de las principales ventajas del diseño es que los datasets se añaden mediante configuración.
+Los datasets se añaden mediante configuración.
 
 ### Nuevo dataset Batch
 
@@ -682,8 +637,6 @@ sink.format
 sink.path
 sink.partition_columns
 ```
-
-No es necesario modificar `motor.py`.
 
 ### Nuevo dataset Streaming
 
@@ -708,49 +661,7 @@ El motor creará automáticamente la nueva Streaming Query.
 
 ---
 
-# 7. Decisiones técnicas y buenas prácticas
-
-### Configuración independiente
-
-Cada dataset tiene su propia configuración de origen y destino.
-
-### Modularidad
-
-La lógica se separa entre configuración, batch, streaming y coordinación del motor.
-
-### Auto Loader
-
-Permite detectar y procesar nuevos ficheros de forma incremental.
-
-### Delta Lake
-
-Bronze se almacena en Delta para disponer de un formato adecuado para cargas incrementales y evolución de esquema.
-
-### Evolución de esquema
-
-Los datasets estructurados utilizan:
-
-```text
-addNewColumns
-```
-
-para permitir la incorporación de nuevas columnas compatibles.
-
-### Metadatos
-
-Batch añade nombre de fichero y fecha de ingesta.
-
-### Seguridad
-
-Las credenciales de conexión se separan de la configuración funcional.
-
-### Particionado
-
-Las columnas de particionado son configurables por dataset.
-
----
-
-# 8. Correspondencia con los requisitos
+# 7. Correspondencia con los requisitos
 
 | Requisito | Implementación |
 |---|---|
@@ -781,38 +692,3 @@ Las columnas de particionado son configurables por dataset.
 | Manejo de errores | Excepciones específicas |
 
 ---
-
-# 9. Resumen
-
-El proyecto implementa un motor de ingesta configurable para FarmIA que permite procesar datos batch y streaming utilizando una arquitectura Lakehouse.
-
-```text
-                 FARMIA INGESTION ENGINE
-                           │
-             ┌─────────────┴─────────────┐
-             │                           │
-           BATCH                      STREAMING
-             │                           │
-      Databricks                    Apache Kafka
-       Auto Loader                       │
-             │                           │
-      CSV / JSON /                       │
-      Avro / Parquet /                   │
-      Imágenes                           │
-             │                           │
-             └─────────────┬─────────────┘
-                           │
-                           ▼
-                         SPARK
-                           │
-                           ▼
-                     DELTA BRONZE
-                           │
-                           ▼
-                    SILVER / GOLD
-                     (futuro)
-```
-
-El diseño separa la lógica del motor de la configuración de los datasets, permitiendo reutilizar el mismo motor para diferentes fuentes y formatos.
-
-El batch se ejecuta **cada hora** mediante la planificación de Databricks, mientras que las ingestas streaming se mantienen **continuamente activas** para procesar nuevos eventos en tiempo real.
