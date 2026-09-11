@@ -493,7 +493,7 @@ Las carpetas de los datasets deben coincidir con las rutas definidas en `ingesti
 
 Comprobar que `config/client.properties` contiene las propiedades necesarias para conectarse a Kafka y, cuando se utilice Avro, a Schema Registry.
 
-Especificar las *credenciales* de la API-key de Kafka y Schema Registry en el archivo `client.properties`.
+Especificar las **credenciales de la API-key de Kafka y Schema Registry** en el archivo `client.properties`.
 
 ---
 
