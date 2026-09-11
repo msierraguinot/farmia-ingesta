@@ -63,6 +63,7 @@ def write_batch(
     sink = ingestion_config["sink"]
 
     destination_path = sink["path"]
+    destination_format = sink["format"]
     partition_columns = sink.get("partition_columns", [])
 
     # Configuramos la escritura en Bronze utilizando formato Delta y un checkpoint independiente por dataset.
@@ -71,7 +72,7 @@ def write_batch(
     # vailableNow=True: Procesa los datos disponibles y después detiene la query
     writer = (
         df.writeStream
-        .format("delta")
+        .format(destination_format)
         .option(
             "checkpointLocation",
             f"{destination_path}_checkpoint"

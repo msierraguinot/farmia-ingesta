@@ -1,41 +1,47 @@
 # FarmIA – Motor de Ingesta de Datos
 
-Motor de ingesta de datos desarrollado en **Python y Apache Spark** para la plataforma de datos de FarmIA.
+Motor de ingesta desarrollado en **Python y Apache Spark** para implementar las cargas batch y streaming de la plataforma de datos de FarmIA.
 
-El proyecto implementa dos tipos de ingesta:
-
-- **Batch:** desde la capa `Landing` hasta `Bronze`, utilizando **Databricks Auto Loader**.
-- **Streaming:** desde **Apache Kafka** hasta `Bronze`, soportando diferentes formatos de mensajes y **Confluent Schema Registry** para Avro.
-
-La configuración de las ingestas se encuentra centralizada en un único fichero JSON, permitiendo añadir o modificar datasets sin cambiar la lógica principal del motor.
+La solución utiliza **Azure Databricks**, **Databricks Auto Loader**, **Delta Lake**, **Apache Kafka** y **Confluent Schema Registry**.
 
 ---
 
-## 1. Objetivo
+## Índice
 
-FarmIA necesita integrar datos procedentes de diferentes fuentes y con diferentes formatos:
-
-- Ventas online.
-- Inventario.
-- Sensores IoT.
-- Eventos de clientes.
-- Proveedores y logística.
-- Información meteorológica.
-- Imágenes.
-
-La solución propuesta utiliza una arquitectura **Lakehouse sobre Azure Databricks**, separando los datos en diferentes capas y utilizando Spark como motor de procesamiento.
-
-El objetivo del proyecto es disponer de un motor de ingesta **reutilizable, configurable y escalable**, capaz de procesar tanto datos batch como eventos en streaming.
+- [1. Objetivo y arquitectura](#1-objetivo-y-arquitectura)
+- [2. Estructura del proyecto](#2-estructura-del-proyecto)
+- [3. Configuración](#3-configuración)
+  - [3.1. Configuración Batch](#31-configuración-batch)
+  - [3.2. Configuración Streaming](#32-configuración-streaming)
+  - [3.3. Kafka y Schema Registry](#33-kafka-y-schema-registry)
+  - [3.4. Credenciales](#34-credenciales)
+- [4. Funcionamiento del motor](#4-funcionamiento-del-motor)
+  - [4.1. Batch](#41-batch)
+  - [4.2. Streaming](#42-streaming)
+  - [4.3. Checkpoints, logs y errores](#43-checkpoints-logs-y-errores)
+- [5. Ejecución](#5-ejecución)
+  - [5.1. Preparación](#51-preparación)
+  - [5.2. Ejecución Batch](#52-ejecución-batch)
+  - [5.3. Ejecución Streaming](#53-ejecución-streaming)
+  - [5.4. Ejecución de los tests](#54-ejecución-de-los-tests)
+- [6. Añadir nuevos datasets](#6-añadir-nuevos-datasets)
+- [7. Decisiones técnicas y buenas prácticas](#7-decisiones-técnicas-y-buenas-prácticas)
+- [8. Correspondencia con los requisitos](#8-correspondencia-con-los-requisitos)
+- [9. Resumen](#9-resumen)
 
 ---
 
-# 2. Arquitectura
+# 1. Objetivo y arquitectura
 
-La arquitectura sigue el patrón de un Lakehouse:
+El objetivo es desarrollar un motor de ingesta basado en **Apache Spark** capaz de procesar datos batch y streaming y llevarlos hasta la capa **Bronze** del Lakehouse.
+
+El enunciado establece que el motor batch debe ejecutarse inicialmente **cada hora**, mientras que la parte streaming debe mantener consultas activas para procesar eventos **en tiempo real**.
+
+### Arquitectura
 
 ```text
                          ┌──────────────────────┐
-                         │      FUENTES         │
+                         │       FUENTES        │
                          └──────────┬───────────┘
                                     │
                     ┌───────────────┴────────────────┐
@@ -74,89 +80,18 @@ La arquitectura sigue el patrón de un Lakehouse:
                            └─────────────┘
 ```
 
-## Capas
+### Capas
 
-### Landing
+- **Landing:** recibe los datos batch en su formato original.
+- **Bronze:** almacena los datos ingeridos en Delta, manteniéndolos próximos al origen y añadiendo metadatos de ingesta.
+- **Silver:** futura capa de limpieza, normalización y transformación.
+- **Gold:** futura capa orientada al análisis y consumo de negocio.
 
-Zona de entrada de los datos batch.
-
-Aquí se almacenan los ficheros originales procedentes de las diferentes fuentes antes de ser procesados.
-
-En este proyecto se utilizan:
-
-- JSON
-- CSV
-- Avro
-- Parquet
-- Imágenes
-
-La capa Landing mantiene los datos en su formato de origen.
-
-### Bronze
-
-Primera capa procesada del Lakehouse.
-
-El motor de ingesta mueve los datos desde Landing hasta Bronze y los almacena en formato **Delta Lake**.
-
-En esta capa se mantienen los datos lo más cercanos posible al origen, incorporando además información de la propia ingesta.
-
-Para los datasets batch se añaden:
-
-- `_ingested_filename`: nombre del fichero de origen.
-- `_ingested_at`: fecha y hora de la ingesta.
-
-En streaming se añade:
-
-- `_ingested_at`: fecha y hora en la que el evento ha sido ingerido.
-
-### Silver
-
-Capa destinada a datos limpios, normalizados y transformados.
-
-No forma parte de la implementación actual del motor, pero se contempla como siguiente etapa de la arquitectura.
-
-Ejemplos:
-
-- Limpieza.
-- Tratamiento de valores nulos.
-- Normalización.
-- Validación.
-- Deduplicación.
-- Unificación de fuentes.
-
-### Gold
-
-Capa orientada al consumo analítico y de negocio.
-
-Tampoco forma parte de la implementación actual.
-
-Podría contener:
-
-- KPIs.
-- Agregaciones.
-- Modelos analíticos.
-- Datos preparados para BI.
-- Indicadores de negocio de FarmIA.
+El enunciado exige el flujo `Landing → Bronze`, pero no especifica una tecnología concreta para almacenar físicamente estas capas. En este proyecto se utilizan **Unity Catalog Volumes** porque es la solución utilizada en el entorno Databricks disponible. Por tanto, las rutas son configurables y podrían adaptarse a otra ubicación de almacenamiento sin cambiar la lógica del motor.
 
 ---
 
-# 3. Tecnologías utilizadas
-
-| Tecnología | Uso |
-|---|---|
-| Python | Desarrollo del motor |
-| Apache Spark | Motor de procesamiento |
-| Databricks | Plataforma de ejecución |
-| Databricks Auto Loader | Ingesta incremental de ficheros |
-| Delta Lake | Almacenamiento de Bronze |
-| Apache Kafka | Fuente de datos streaming |
-| Confluent Schema Registry | Gestión de esquemas Avro |
-| JSON | Configuración del motor |
-| Git | Control de versiones |
-
----
-
-# 4. Estructura del proyecto
+# 2. Estructura del proyecto
 
 ```text
 farmia-ingesta/
@@ -178,89 +113,33 @@ farmia-ingesta/
 │   ├── test_batch.py
 │   └── test_streaming.py
 │
-├── run_batch_ingesta.py
-├── run_streaming_ingesta.py
-├── farmia-pruebas.py
 ├── README.md
 └── .gitignore
 ```
 
-## Descripción de los componentes
+Los componentes principales son:
 
-### `ingesta/config.py`
+| Componente | Función |
+|---|---|
+| `config.py` | Carga la configuración JSON y las propiedades de conexión |
+| `batch.py` | Lectura con Auto Loader y escritura en Bronze |
+| `streaming.py` | Lectura de Kafka y deserialización de mensajes |
+| `motor.py` | Coordina todas las ingestas configuradas |
+| `ingestion_config.json` | Define datasets, formatos, rutas y opciones |
 
-Contiene las funciones encargadas de cargar:
-
-- La configuración principal del motor.
-- El fichero de propiedades de conexión.
-
-Funciones principales:
-
-```python
-load_config()
-load_properties()
-```
-
-### `ingesta/batch.py`
-
-Implementa la ingesta batch.
-
-Se encarga de:
-
-1. Leer los ficheros mediante Databricks Auto Loader.
-2. Aplicar las opciones definidas en la configuración.
-3. Añadir metadatos de ingesta.
-4. Escribir los datos en Bronze en formato Delta.
-5. Aplicar las particiones configuradas.
-6. Mantener un checkpoint independiente por dataset.
-7. Permitir evolución de esquema.
-
-### `ingesta/streaming.py`
-
-Implementa la lectura y deserialización de eventos Kafka.
-
-El motor soporta:
-
-- `string`
-- `json`
-- `avro`
-
-Para Avro se utiliza **Confluent Schema Registry**.
-
-### `ingesta/motor.py`
-
-Es el componente principal del proyecto.
-
-La clase:
-
-```python
-MotorIngesta
-```
-
-coordina las operaciones de ingesta.
-
-Dispone de dos métodos principales:
-
-```python
-ejecutar_batch()
-ejecutar_streaming()
-```
-
-El motor obtiene los datasets directamente de `ingestion_config.json` y crea las operaciones correspondientes.
-
-Esto permite añadir nuevos datasets modificando principalmente la configuración.
+La lógica está separada de la configuración para poder añadir datasets sin modificar el motor.
 
 ---
 
-# 5. Configuración
+# 3. Configuración
 
-Toda la configuración funcional de los datasets se encuentra en:
+La configuración funcional está centralizada en:
 
 ```text
 config/ingestion_config.json
 ```
 
-La configuración está dividida en dos bloques:
+Se divide en:
 
 ```json
 {
@@ -269,11 +148,15 @@ La configuración está dividida en dos bloques:
 }
 ```
 
----
+## 3.1. Configuración Batch
 
-# 6. Configuración Batch
+Cada dataset define independientemente:
 
-Cada dataset batch tiene su propia configuración.
+- Formato de entrada.
+- Esquema esperado.
+- Ruta de Landing.
+- Ruta de Bronze.
+- Columnas de particionado.
 
 Ejemplo:
 
@@ -294,193 +177,40 @@ Ejemplo:
 }
 ```
 
-## Parámetros
+Los datasets incluidos cubren los cinco formatos batch requeridos:
 
-### `datasource`
+| Dataset | Formato |
+|---|---|
+| `ventas` | JSON |
+| `inventario` | CSV |
+| `meteorologia` | Parquet |
+| `proveedores` | Avro |
+| `imagenes` | Imágenes (`binaryFile`) |
 
-Identifica la fuente de datos.
+La entrada y la salida tienen formatos independientes. Por ejemplo, `meteorologia` se recibe en Parquet y se almacena en Bronze como Delta.
 
-```json
-"datasource": "farmia"
-```
-
-### `dataset`
-
-Identifica el dataset.
-
-```json
-"dataset": "ventas"
-```
-
-### `source.format`
-
-Define el formato de entrada.
-
-Los formatos utilizados en el proyecto son:
-
-```text
-json
-csv
-avro
-parquet
-binaryFile
-```
-
-`binaryFile` se utiliza para las imágenes.
-
-### `source.path`
-
-Ruta donde se encuentran los datos en Landing.
-
-```json
-"path": "/Volumes/.../landing/ventas"
-```
-
-### `source.schema_hints`
-
-Permite indicar el esquema esperado para los formatos estructurados.
-
-Ejemplo:
-
-```json
-"schema_hints": "id long, producto string, cantidad integer, fecha string"
-```
-
-### `sink.format`
-
-Formato de almacenamiento en Bronze.
-
-Actualmente:
-
-```json
-"format": "delta"
-```
-
-### `sink.path`
-
-Ruta de destino en Bronze.
-
-### `sink.partition_columns`
-
-Define las columnas utilizadas para particionar los datos.
-
-Ejemplo:
-
-```json
-"partition_columns": ["fecha"]
-```
-
----
-
-# 7. Datasets Batch incluidos
-
-La configuración de ejemplo demuestra los cinco formatos requeridos:
-
-| Dataset | Formato origen | Destino | Partición |
-|---|---|---|---|
-| `ventas` | JSON | Delta | `fecha` |
-| `inventario` | CSV | Delta | `fecha` |
-| `meteorologia` | Parquet | Delta | `fecha` |
-| `proveedores` | Avro | Delta | `fecha` |
-| `imagenes` | Imágenes (`binaryFile`) | Delta | Sin partición |
-
-Esto permite comprobar que el motor no está limitado a un único formato de entrada.
-
----
-
-# 8. Databricks Auto Loader
-
-La ingesta batch utiliza **Databricks Auto Loader** mediante:
+La ingesta batch utiliza Databricks Auto Loader:
 
 ```python
 spark.readStream.format("cloudFiles")
 ```
 
-Auto Loader permite detectar e ingerir nuevos ficheros de forma incremental.
+Se utilizan `schema_hints`, ubicación de esquema, evolución de esquema y checkpoints independientes por dataset.
 
-La configuración utiliza:
-
-```text
-cloudFiles.format
-cloudFiles.inferColumnTypes
-cloudFiles.schemaEvolutionMode
-cloudFiles.schemaLocation
-cloudFiles.schemaHints
-```
-
-El motor mantiene una ubicación de esquema independiente para cada dataset:
-
-```text
-<destination_path>_schema
-```
-
-y un checkpoint independiente:
-
-```text
-<destination_path>_checkpoint
-```
-
-Esto permite que cada dataset mantenga su propio estado de procesamiento.
-
----
-
-# 9. Evolución de esquema
-
-Para los datasets estructurados se habilita:
-
-```text
-cloudFiles.schemaEvolutionMode = addNewColumns
-```
-
-Esto permite incorporar columnas nuevas cuando el cambio de esquema es compatible.
-
-Además, la escritura en Delta utiliza:
-
-```text
-mergeSchema = true
-```
-
-De esta forma, el esquema de la tabla Bronze puede incorporar las nuevas columnas detectadas.
-
-Las imágenes utilizan `binaryFile`, por lo que no necesitan evolución de esquema como los datasets estructurados.
-
----
-
-# 10. Metadatos de ingesta
-
-Cada registro batch incorpora información sobre su procedencia y momento de procesamiento.
-
-### Nombre del fichero
+Además, se añaden:
 
 ```text
 _ingested_filename
-```
-
-Se obtiene de los metadatos proporcionados por Auto Loader.
-
-### Fecha de ingesta
-
-```text
 _ingested_at
 ```
 
-Se genera utilizando:
-
-```python
-current_timestamp()
-```
-
-Estos campos permiten conocer cuándo se procesó un registro y de qué fichero procede.
+para identificar el fichero de origen y el momento de la ingesta.
 
 ---
 
-# 11. Configuración Streaming
+## 3.2. Configuración Streaming
 
-Los datasets streaming se configuran dentro de:
-
-```json
-"streaming": []
-```
+Los datasets streaming se configuran también de forma independiente.
 
 Ejemplo:
 
@@ -508,186 +238,258 @@ Ejemplo:
 }
 ```
 
+El motor permite configurar:
+
+- Topic concreto mediante `subscribe`.
+- Patrón de topics mediante `subscribePattern`.
+- Formato de key.
+- Key subject.
+- Formato de value.
+- Value subject.
+- Esquema JSON cuando corresponda.
+- Ruta y particiones de Bronze.
+
+Actualmente se incluyen:
+
+- `eventos_clientes`: key `string` + value `Avro`.
+- `sensores_iot`: key `string` + value `JSON`.
+
 ---
 
-# 12. Parámetros Streaming
+## 3.3. Kafka y Schema Registry
 
-Cada dataset puede definir de forma independiente:
+La parte streaming utiliza un cluster de **Confluent Cloud** como fuente Kafka.
 
-### Formato
+La configuración conceptual es:
 
-```json
-"format": "kafka"
+```text
+Confluent Cloud
+      │
+      ├── Kafka Cluster
+      │       │
+      │       ├── eventos_clientes
+      │       └── sensores_...
+      │
+      └── Schema Registry
+              │
+              ├── eventos_clientes-key
+              └── eventos_clientes-value
 ```
 
-### Topic
+### Topics
 
-Se puede utilizar:
+Los productores publican eventos en topics de Kafka.
+
+Por ejemplo:
+
+```text
+eventos_clientes
+```
+
+El motor se suscribe al topic mediante:
 
 ```json
 "subscribe": "eventos_clientes"
 ```
 
-para suscribirse a un topic concreto.
-
-También:
+Para sensores se puede utilizar un patrón:
 
 ```json
 "subscribePattern": "sensores_.*"
 ```
 
-para suscribirse a un patrón de topics.
+### Schema Registry
 
-### Key
-
-```json
-"key_format": "string",
-"key_subject": "..."
-```
-
-### Value
-
-```json
-"value_format": "avro",
-"value_subject": "..."
-```
-
-El motor soporta actualmente:
-
-```text
-string
-json
-avro
-```
-
----
-
-# 13. Streaming con JSON
-
-Los mensajes JSON utilizan el esquema definido en la configuración.
-
-Ejemplo:
-
-```json
-"value_format": "json",
-"json_schema": "sensor_id string, temperatura double, humedad double, timestamp string"
-```
-
-El motor utiliza este esquema para convertir el contenido binario recibido desde Kafka en una estructura Spark.
-
----
-
-# 14. Streaming con Avro y Schema Registry
-
-El dataset `eventos_clientes` utiliza:
-
-```text
-value_format = avro
-```
-
-El esquema se obtiene mediante **Confluent Schema Registry** utilizando el `value_subject` configurado.
-
-Ejemplo:
-
-```json
-"value_format": "avro",
-"value_subject": "eventos_clientes-value"
-```
-
-La dirección y las credenciales de Schema Registry no se almacenan en `ingestion_config.json`.
-
-Se mantienen en:
-
-```text
-config/client.properties
-```
-
-Esto permite separar:
-
-- Configuración funcional de los datasets.
-- Configuración sensible de conexión.
-
----
-
-# 15. Seguridad de credenciales
-
-El fichero:
-
-```text
-config/client.properties
-```
-
-contiene información sensible de conexión con Kafka y Schema Registry.
-
-Por este motivo:
-
-- No debe contener credenciales reales en el repositorio público.
-- No debe incluirse en Git.
-- Debe utilizarse un fichero local o un mecanismo seguro de secretos de Databricks.
-
-El `.gitignore` debe incluir:
-
-```text
-config/client.properties
-```
-
-Si se necesita incluir una referencia en el repositorio, puede utilizarse una plantilla:
-
-```text
-config/client.properties.example
-```
-
-con valores ficticios.
-
----
-
-# 16. Ejecución en Databricks
-
-El proyecto está preparado para ejecutarse desde un repositorio de Databricks.
-
-## Paso 1 – Clonar el repositorio
-
-En Databricks:
-
-```text
-Workspace
-    ↓
-Repos
-    ↓
-Add Repo
-    ↓
-URL del repositorio Git
-```
-
-Una vez clonado, la estructura será:
-
-```text
-farmia-ingesta/
-├── config/
-├── ingesta/
-├── tests/
-├── run_batch_ingesta.py
-├── run_streaming_ingesta.py
-└── README.md
-```
-
-## Paso 2 – Preparar los Volumes
-
-El proyecto utiliza Unity Catalog Volumes para almacenar Landing y Bronze.
-
-La estructura utilizada es:
-
-```text
-/Volumes/<catalog>/<schema>/landing/
-```
-
-y:
-
-```text
-/Volumes/<catalog>/<schema>/bronze/
-```
+Cuando el value utiliza Avro, el esquema se gestiona mediante Schema Registry.
 
 Por ejemplo:
+
+```text
+eventos_clientes-value
+```
+
+El motor utiliza el `value_subject` definido en la configuración para obtener el esquema correspondiente.
+
+La ventaja es que el esquema de los mensajes Avro se gestiona de forma centralizada en Schema Registry en lugar de tener que incluirlo directamente en cada mensaje.
+
+---
+
+## 3.4. Credenciales
+
+Las propiedades de conexión se mantienen separadas de la configuración de los datasets:
+
+```text
+config/client.properties
+```
+
+Este fichero contiene las propiedades necesarias para conectar con Kafka y, cuando se utiliza Avro, con Schema Registry.
+
+No se deben publicar credenciales personales en Git.
+
+Para entregar el proyecto al profesor se puede incluir el fichero con los datos de conexión necesarios, sustituyendo previamente el usuario, contraseña, API keys y secretos personales por los valores que correspondan al entorno del profesor.
+
+---
+
+# 4. Funcionamiento del motor
+
+El componente central es:
+
+```python
+MotorIngesta
+```
+
+y proporciona:
+
+```python
+ejecutar_batch()
+ejecutar_streaming()
+```
+
+El motor lee `ingestion_config.json` y crea las ingestas correspondientes para todos los datasets configurados.
+
+---
+
+## 4.1. Batch
+
+El flujo batch es:
+
+```text
+Landing
+   │
+   │ Auto Loader
+   ▼
+Spark
+   │
+   ├── Esquema
+   ├── Evolución
+   ├── Metadatos
+   │
+   ▼
+Bronze / Delta
+```
+
+El enunciado establece que el motor batch debe ejecutarse **cada hora**. Esta periodicidad no se implementa con un bucle dentro de Python, sino mediante la planificación de **Databricks Jobs**:
+
+```text
+Databricks Job
+      │
+      │ cada 1 hora
+      ▼
+MotorIngesta.ejecutar_batch()
+      │
+      ▼
+Landing → Bronze
+```
+
+En cada ejecución, Auto Loader procesa los nuevos ficheros pendientes y el checkpoint permite mantener el estado de cada dataset.
+
+En Databricks, la configuración se realiza creando un Job, añadiendo la tarea que ejecuta el motor y seleccionando un trigger **Scheduled** con una periodicidad de **1 hora**. 
+
+---
+
+## 4.2. Streaming
+
+El flujo streaming es:
+
+```text
+Kafka
+  │
+  ▼
+Spark Structured Streaming
+  │
+  ├── String
+  ├── JSON
+  └── Avro + Schema Registry
+  │
+  ▼
+Bronze / Delta
+```
+
+A diferencia del batch, el streaming **no se programa cada hora**. Una Streaming Query se inicia y permanece activa mientras el proceso siga ejecutándose. Cuando llegan nuevos mensajes a Kafka, Spark los va procesando mediante micro-batches. Si no se indica ningún trigger explícito, Structured Streaming ejecuta el siguiente micro-batch tan pronto como termina el anterior y hay datos disponibles. 
+
+En este proyecto, la llamada:
+
+```python
+queries, errores = motor.ejecutar_streaming()
+```
+
+**inicia** las queries, pero el método devuelve inmediatamente la lista de queries. Para mantener el proceso de ejecución asociado al motor bloqueado mientras las consultas siguen activas, puede esperarse a su terminación con `awaitTermination()`:
+
+```python
+queries, errores = motor.ejecutar_streaming()
+
+for dataset, query in queries:
+    query.awaitTermination()
+```
+
+En un despliegue continuo, la query seguirá funcionando hasta que se detenga, falle o se cancele el proceso. Por tanto, no necesita una planificación horaria como el batch.
+
+### Streaming en Databricks
+
+Para un entorno de Databricks con soporte para Structured Streaming continuo, se puede ejecutar el motor como un Job configurado en modo **Continuous**, pensado para cargas que deben permanecer activas. Databricks recomienda este modo para workloads de streaming siempre activos. 
+
+Otra posibilidad es gestionar la permanencia del proceso desde el propio código mediante `awaitTermination()`.
+
+### `availableNow`
+
+El motor también admite:
+
+```python
+queries, errores = motor.ejecutar_streaming(
+    available_now=True
+)
+```
+
+`availableNow` procesa todos los datos disponibles en ese momento, utilizando uno o varios micro-batches, y después termina la query. Por tanto, **no es el modo continuo** del ejercicio; resulta útil para una ejecución puntual o incremental. 
+
+### Importante en el entorno Serverless utilizado
+
+Durante el desarrollo se ha utilizado Databricks Serverless. En este entorno no están soportados los triggers `ProcessingTime` y `Continuous` de Structured Streaming; `AvailableNow` es el trigger recomendado. Para un patrón continuo en Serverless, Databricks ofrece la opción de ejecutar Jobs en modo **Continuous** con triggers acotados como `AvailableNow`, o utilizar pipelines Lakeflow en modo continuo. 
+
+Esto explica por qué durante las pruebas del proyecto se utiliza `available_now=True`: permite ejecutar la ingesta streaming en el entorno Serverless disponible. En un cluster que permita Structured Streaming continuo, se puede utilizar la modalidad continua descrita anteriormente, que es la que refleja directamente el requisito del ejercicio.
+
+---
+
+## 4.3. Checkpoints, logs y errores
+
+Cada dataset dispone de un checkpoint independiente para que Spark pueda mantener su estado de procesamiento.
+
+El motor utiliza `logging` para registrar:
+
+- Finalización de ingestas.
+- Ausencia de nuevos ficheros.
+- Errores de datasets.
+- Errores durante la ejecución de las queries.
+
+Los errores se almacenan y se notifican mediante excepciones específicas:
+
+```python
+IngestaBatchException
+IngestaStreamingException
+```
+
+Esto permite identificar qué dataset ha fallado sin ocultar el problema.
+
+---
+
+# 5. Ejecución
+
+## 5.1. Preparación
+
+### 1. Clonar el repositorio
+
+Abrir el repositorio desde Databricks y comprobar que están disponibles:
+
+```text
+config/
+ingesta/
+tests/
+README.md
+```
+
+### 2. Preparar Landing y Bronze
+
+En el entorno utilizado para desarrollar el proyecto se utilizan Unity Catalog Volumes:
 
 ```text
 /Volumes/mastermsg001dbr/default/landing/
@@ -697,219 +499,117 @@ Por ejemplo:
 /Volumes/mastermsg001dbr/default/bronze/
 ```
 
-Dentro de estas ubicaciones se crean las carpetas de cada dataset:
+Las carpetas de los datasets deben coincidir con las rutas definidas en `ingestion_config.json`.
 
-```text
-landing/
-├── ventas/
-├── inventario/
-├── meteorologia/
-├── proveedores/
-└── imagenes/
+### 3. Configurar Kafka y Schema Registry
 
-bronze/
-├── ventas/
-├── inventario/
-├── meteorologia/
-├── proveedores/
-└── imagenes/
-```
+Comprobar que `config/client.properties` contiene las propiedades necesarias para conectarse a Kafka y, cuando se utilice Avro, a Schema Registry.
 
-Las rutas concretas deben coincidir con las definidas en:
-
-```text
-config/ingestion_config.json
-```
+No deben publicarse credenciales personales en Git.
 
 ---
 
-# 17. Configurar las conexiones
+## 5.2. Ejecución Batch
 
-Antes de ejecutar streaming es necesario configurar el acceso al clúster Kafka.
-
-El fichero:
-
-```text
-config/client.properties
-```
-
-debe contener las propiedades de conexión de Kafka y, cuando corresponda, las propiedades de autenticación de Schema Registry.
-
-**No se deben guardar credenciales reales en Git.**
-
-Como mínimo, la configuración debe proporcionar:
-
-```text
-kafka.bootstrap.servers
-kafka.security.protocol
-kafka.sasl.mechanism
-kafka.sasl.jaas.config
-```
-
-Cuando se utilice Avro:
-
-```text
-confluent.schema.registry.url
-confluent.schema.registry.basic.auth.credentials.source
-confluent.schema.registry.basic.auth.user.info
-```
-
-El motor carga estas propiedades automáticamente mediante `load_properties()`.
-
----
-
-# 18. Ejecución Batch
-
-El fichero:
-
-```text
-run_batch_ingesta.py
-```
-
-inicializa el motor utilizando la configuración:
-
-```text
-config/ingestion_config.json
-```
-
-Conceptualmente, la ejecución es:
+El motor se inicializa con:
 
 ```python
 from ingesta.motor import MotorIngesta
 
-config_path = "config/ingestion_config.json"
-
 motor = MotorIngesta(
     spark,
-    config_path
+    "config/ingestion_config.json"
 )
 
 motor.ejecutar_batch()
 ```
 
-El motor:
+La ejecución recorre todos los datasets definidos en:
 
-1. Lee todos los datasets configurados en `batch`.
-2. Crea una lectura Auto Loader para cada dataset.
-3. Añade los metadatos de ingesta.
-4. Escribe cada dataset en su destino Bronze.
-5. Espera a que finalicen las ingestas.
-6. Registra los errores mediante logging.
+```json
+"batch": []
+```
 
----
+y realiza:
 
-# 19. Ejecución Batch programada
+```text
+Landing
+   ↓
+Auto Loader
+   ↓
+Spark
+   ↓
+Bronze / Delta
+```
 
-El enunciado establece que la primera versión del motor batch debe ejecutarse cada hora.
+### Ejecución cada hora
 
-El código del motor realiza una ejecución batch, mientras que la periodicidad puede gestionarse mediante un **Databricks Job**.
+El requisito del ejercicio es que la ingesta batch se ejecute **cada hora**.
 
-Configuración:
+La forma recomendada es configurar un **Databricks Job** que ejecute el código anterior con esta periodicidad:
 
 ```text
 Databricks Job
-       │
-       ▼
-run_batch_ingesta.py
-       │
-       ▼
+      │
+      │ cada 1 hora
+      ▼
 MotorIngesta.ejecutar_batch()
-       │
-       ▼
+      │
+      ▼
 Landing → Bronze
 ```
 
-El Job puede configurarse con una periodicidad:
-
-```text
-Cada 1 hora
-```
-
-De esta forma, el motor se ejecuta periódicamente y Auto Loader procesa los nuevos ficheros pendientes.
+El código del motor no necesita implementar un bucle de 60 minutos. La periodicidad pertenece al mecanismo de planificación de Databricks.
 
 ---
 
-# 20. Ejecución Streaming
+## 5.3. Ejecución Streaming
 
-El fichero:
-
-```text
-run_streaming_ingesta.py
-```
-
-inicializa el motor:
-
-```python
-from ingesta.motor import MotorIngesta
-
-config_path = "config/ingestion_config.json"
-
-motor = MotorIngesta(
-    spark,
-    config_path
-)
-
-queries, errores = motor.ejecutar_streaming()
-```
-
-El motor recorre todos los datasets definidos en:
+El motor crea una Streaming Query por cada dataset incluido en:
 
 ```json
 "streaming": []
 ```
 
-y crea una Streaming Query para cada uno.
-
-Por ejemplo:
-
-```text
-eventos_clientes
-sensores_iot
-```
-
-generan dos consultas independientes.
-
----
-
-# 21. Streaming continuo
-
-Para mantener las consultas activas y procesar eventos en tiempo real:
+La ejecución normal es:
 
 ```python
+from ingesta.motor import MotorIngesta
+
+motor = MotorIngesta(
+    spark,
+    "config/ingestion_config.json"
+)
+
 queries, errores = motor.ejecutar_streaming()
 ```
 
-El parámetro:
+`ejecutar_streaming()` inicia las queries y estas pueden seguir procesando nuevos mensajes de Kafka mientras el proceso Spark permanezca activo.
 
-```python
-available_now=False
-```
-
-utiliza el comportamiento continuo de Structured Streaming.
-
-La arquitectura resultante es:
+El flujo es:
 
 ```text
 Kafka
-  │
-  ├── eventos_clientes
-  │
-  └── sensores_*
-          │
-          ▼
-    Spark Structured Streaming
-          │
-          ▼
-       Bronze Delta
+  ↓
+Spark Structured Streaming
+  ↓
+Bronze / Delta
 ```
 
-Las consultas permanecen activas mientras el proceso de streaming esté ejecutándose.
+Los nuevos eventos se van procesando a medida que están disponibles; **no se necesita programar una ejecución cada hora** como en batch.
 
----
+Para mantener explícitamente el proceso esperando a que las queries sigan activas:
 
-# 22. Procesamiento Available Now
+```python
+for dataset, query in queries:
+    query.awaitTermination()
+```
 
-El motor también permite utilizar:
+En un despliegue continuo de Databricks, el proceso o Job debe permanecer activo para que las queries continúen ejecutándose.
+
+### `availableNow`
+
+El motor también permite:
 
 ```python
 queries, errores = motor.ejecutar_streaming(
@@ -917,413 +617,178 @@ queries, errores = motor.ejecutar_streaming(
 )
 ```
 
-En este modo se procesan los datos disponibles y las consultas finalizan cuando terminan de procesar los datos pendientes.
+En este modo se procesan los datos disponibles y las queries terminan cuando finaliza el trabajo pendiente.
 
-Este modo resulta útil para ejecuciones puntuales o entornos donde no se desea mantener una consulta continua.
+Por tanto:
+
+```text
+Batch
+→ ejecución puntual
+→ programada cada hora mediante Databricks Job
+
+Streaming normal
+→ queries activas
+→ procesa nuevos eventos mientras permanece activo
+
+Streaming availableNow
+→ procesa lo disponible
+→ finaliza al terminar
+```
+
+Para el requisito de streaming en tiempo real del ejercicio, la modalidad principal es la **ejecución continua**.
 
 ---
 
-# 23. Checkpoints
+## 5.4. Ejecución de los tests
 
-Cada dataset tiene su propio checkpoint.
-
-Para batch:
+Los tests automatizados se encuentran en:
 
 ```text
-<destination_path>_checkpoint
+tests/
+├── test_config.py
+├── test_batch.py
+└── test_streaming.py
 ```
 
-Para streaming se utiliza igualmente un checkpoint independiente por destino.
+Desde la raíz del proyecto:
 
-El checkpoint permite a Spark mantener el estado de procesamiento y evitar volver a procesar datos ya tratados.
-
-Esto es especialmente importante en procesos incrementales y streaming.
-
----
-
-# 24. Manejo de errores
-
-El motor incorpora manejo de errores a nivel de dataset.
-
-Si un dataset falla, el error se registra indicando qué dataset ha producido el problema.
-
-Ejemplo:
-
-```text
-Dataset ventas: Error al iniciar la ingesta batch: ...
+```bash
+pytest
 ```
 
-Los errores se almacenan y, al finalizar la ejecución, se lanza una excepción específica:
+Para obtener información detallada:
 
-```python
-IngestaBatchException
+```bash
+pytest -v
 ```
 
-o:
 
-```python
-IngestaStreamingException
-```
+# 6. Añadir nuevos datasets
 
-Esto permite distinguir los errores de batch y streaming y evita ocultar fallos durante la ejecución.
+Una de las principales ventajas del diseño es que los datasets se añaden mediante configuración.
 
----
+### Nuevo dataset Batch
 
-# 25. Logs
-
-El motor utiliza el módulo estándar:
-
-```python
-logging
-```
-
-para registrar:
-
-- Inicio y finalización de ingestas.
-- Errores de datasets.
-- Ausencia de nuevos ficheros.
-- Problemas durante la ejecución de las queries.
-
-Esto facilita la monitorización de las ejecuciones desde Databricks.
-
----
-
-# 26. Añadir un nuevo dataset Batch
-
-Una de las principales ventajas del diseño es que no es necesario modificar el código del motor para añadir un nuevo dataset.
-
-Por ejemplo, para añadir:
-
-```text
-clientes
-```
-
-se incorpora una nueva entrada en:
-
-```text
-config/ingestion_config.json
-```
-
-Ejemplo:
+Se añade una nueva entrada dentro de:
 
 ```json
-{
-  "datasource": "farmia",
-  "dataset": "clientes",
-  "source": {
-    "format": "json",
-    "path": "/Volumes/.../landing/clientes",
-    "schema_hints": "id long, nombre string, fecha string"
-  },
-  "sink": {
-    "format": "delta",
-    "path": "/Volumes/.../bronze/clientes",
-    "partition_columns": ["fecha"]
-  }
-}
+"batch": []
 ```
 
-El motor detectará automáticamente el nuevo dataset durante la siguiente ejecución.
+indicando:
 
----
-
-# 27. Añadir un nuevo dataset Streaming
-
-El mismo principio se aplica a streaming.
-
-Para añadir un nuevo origen Kafka se incorpora una nueva configuración:
-
-```json
-{
-  "datasource": "farmia",
-  "dataset": "nuevo_dataset",
-  "source": {
-    "format": "kafka",
-    "kafka_properties_file": "config/client.properties",
-    "options": {
-      "subscribe": "nuevo_topic",
-      "startingOffsets": "earliest"
-    },
-    "key_format": "string",
-    "key_subject": "nuevo_dataset-key",
-    "value_format": "json",
-    "value_subject": "nuevo_dataset-value",
-    "json_schema": "id long, evento string, timestamp string"
-  },
-  "sink": {
-    "format": "delta",
-    "path": "/Volumes/.../bronze/nuevo_dataset",
-    "partition_columns": []
-  }
-}
+```text
+dataset
+source.format
+source.path
+source.schema_hints
+sink.format
+sink.path
+sink.partition_columns
 ```
 
 No es necesario modificar `motor.py`.
 
----
+### Nuevo dataset Streaming
 
-# 28. Flujo completo de datos
+Se añade una entrada dentro de:
 
-## Batch
+```json
+"streaming": []
+```
+
+indicando:
 
 ```text
-Fuente
-  │
-  ▼
-Landing
-  │
-  │ Databricks Auto Loader
-  ▼
-Spark
-  │
-  ├── Schema Hints
-  ├── Schema Evolution
-  ├── Metadatos
-  │
-  ▼
-Delta Bronze
+dataset
+topic o patrón de topics
+key/value format
+key/value subject
+destino Bronze
+particiones
 ```
 
-## Streaming
-
-```text
-Fuente
-  │
-  ▼
-Apache Kafka
-  │
-  │ Structured Streaming
-  ▼
-Spark
-  │
-  ├── String
-  ├── JSON
-  └── Avro + Schema Registry
-  │
-  ▼
-Delta Bronze
-```
+El motor creará automáticamente la nueva Streaming Query.
 
 ---
 
-# 29. Consultar los datos en Bronze
-
-Una vez ejecutada la ingesta, los datos pueden consultarse directamente desde Databricks.
-
-Ejemplo batch:
-
-```python
-df = (
-    spark.read
-    .format("delta")
-    .load(
-        "/Volumes/mastermsg001dbr/default/bronze/ventas"
-    )
-)
-
-display(df)
-```
-
-Para consultar el esquema:
-
-```python
-df.printSchema()
-```
-
-Ejemplo streaming:
-
-```python
-df = (
-    spark.read
-    .format("delta")
-    .load(
-        "/Volumes/mastermsg001dbr/default/bronze/eventos_clientes"
-    )
-)
-
-display(df)
-```
-
----
-
-# 30. Buenas prácticas implementadas
-
-El proyecto incorpora varias decisiones orientadas a facilitar su mantenimiento y escalabilidad.
+# 7. Decisiones técnicas y buenas prácticas
 
 ### Configuración independiente
 
-Cada dataset define sus propias características sin necesidad de modificar el código del motor.
+Cada dataset tiene su propia configuración de origen y destino.
 
 ### Modularidad
 
-La lógica está separada en:
-
-```text
-config.py
-batch.py
-streaming.py
-motor.py
-```
+La lógica se separa entre configuración, batch, streaming y coordinación del motor.
 
 ### Auto Loader
 
-Permite una ingesta incremental de ficheros y evita tener que gestionar manualmente qué ficheros nuevos deben procesarse.
+Permite detectar y procesar nuevos ficheros de forma incremental.
 
 ### Delta Lake
 
-Bronze utiliza Delta para disponer de un formato transaccional y adecuado para cargas incrementales.
-
-### Checkpoints independientes
-
-Cada dataset mantiene su propio estado de procesamiento.
-
-### Particionado configurable
-
-Cada dataset puede definir sus propias columnas de particionado.
+Bronze se almacena en Delta para disponer de un formato adecuado para cargas incrementales y evolución de esquema.
 
 ### Evolución de esquema
 
-Los datasets estructurados permiten incorporar columnas nuevas compatibles.
+Los datasets estructurados utilizan:
 
-### Separación de credenciales
+```text
+addNewColumns
+```
 
-Las credenciales de Kafka y Schema Registry se mantienen fuera de la configuración funcional de los datasets.
+para permitir la incorporación de nuevas columnas compatibles.
 
-### Logs y manejo de errores
+### Metadatos
 
-Los errores se registran identificando el dataset afectado.
+Batch añade nombre de fichero y fecha de ingesta.
+
+### Seguridad
+
+Las credenciales de conexión se separan de la configuración funcional.
+
+### Particionado
+
+Las columnas de particionado son configurables por dataset.
 
 ---
 
-# 31. Correspondencia con los requisitos del ejercicio
+# 8. Correspondencia con los requisitos
 
 | Requisito | Implementación |
 |---|---|
-| Motor basado en Apache Spark | `MotorIngesta` + Spark |
-| Ingesta Landing → Bronze | `batch.py` |
-| CSV | Dataset `inventario` |
-| JSON | Dataset `ventas` |
-| Avro | Dataset `proveedores` |
-| Parquet | Dataset `meteorologia` |
-| Imágenes | Dataset `imagenes` + `binaryFile` |
+| Motor basado en Spark | `MotorIngesta` |
+| Batch Landing → Bronze | `batch.py` |
+| Ejecución batch cada hora | Databricks Job |
+| Streaming en tiempo real | Structured Streaming |
+| CSV | `inventario` |
+| JSON | `ventas` |
+| Avro | `proveedores` |
+| Parquet | `meteorologia` |
+| Imágenes | `imagenes` |
 | Esquema esperado | `schema_hints` |
-| Ruta de origen configurable | `source.path` |
-| Ruta de destino configurable | `sink.path` |
-| Particionado configurable | `partition_columns` |
+| Rutas configurables | `source.path` / `sink.path` |
+| Particiones configurables | `partition_columns` |
 | Fecha de ingesta | `_ingested_at` |
 | Nombre de fichero | `_ingested_filename` |
-| Evolución de esquema | Auto Loader + `addNewColumns` |
-| Databricks Auto Loader | `cloudFiles` |
+| Evolución de esquema | Auto Loader |
+| Auto Loader | `cloudFiles` |
 | Kafka | `streaming.py` |
-| Formato configurable | `key_format` / `value_format` |
-| Key subject | `key_subject` |
-| Value subject | `value_subject` |
-| Topic | `subscribe` |
-| Patrón de topics | `subscribePattern` |
-| Kafka → Bronze | `write_streaming()` |
+| Key / Value subject | Configuración streaming |
+| Topics / patrones | `subscribe` / `subscribePattern` |
 | JSON streaming | `sensores_iot` |
 | Avro streaming | `eventos_clientes` |
-| Schema Registry | Avro + Confluent Schema Registry |
-| Queries desde configuración | `MotorIngesta.ejecutar_streaming()` |
-| Escritura Delta | `write_batch()` / `write_streaming()` |
+| Schema Registry | Confluent Schema Registry |
+| Queries desde configuración | `MotorIngesta` |
 | Logs | `logging` |
-| Manejo de errores | Excepciones específicas por modalidad |
+| Manejo de errores | Excepciones específicas |
 
 ---
 
-# 32. Puesta en marcha rápida
+# 9. Resumen
 
-## Batch
-
-1. Clonar el repositorio en Databricks.
-2. Crear los Volumes de Landing y Bronze.
-3. Colocar los ficheros de entrada en las carpetas de Landing.
-4. Revisar las rutas de `config/ingestion_config.json`.
-5. Configurar el Job de Databricks.
-6. Ejecutar:
-
-```python
-from ingesta.motor import MotorIngesta
-
-motor = MotorIngesta(
-    spark,
-    "config/ingestion_config.json"
-)
-
-motor.ejecutar_batch()
-```
-
-Los datos quedarán disponibles en Bronze en formato Delta.
-
----
-
-## Streaming
-
-1. Configurar el acceso al clúster Kafka.
-2. Configurar Schema Registry si se utiliza Avro.
-3. Mantener las credenciales fuera de Git.
-4. Revisar los topics y subjects definidos en `ingestion_config.json`.
-5. Ejecutar:
-
-```python
-from ingesta.motor import MotorIngesta
-
-motor = MotorIngesta(
-    spark,
-    "config/ingestion_config.json"
-)
-
-queries, errores = motor.ejecutar_streaming()
-```
-
-Las consultas creadas procesarán los eventos Kafka y los almacenarán en Bronze.
-
----
-
-# 33. Consideraciones para despliegue
-
-Antes de desplegar el proyecto en otro entorno es necesario revisar:
-
-### Rutas
-
-Actualizar las rutas:
-
-```text
-/Volumes/<catalog>/<schema>/...
-```
-
-para adaptarlas al entorno de destino.
-
-### Kafka
-
-Configurar las propiedades de conexión en:
-
-```text
-config/client.properties
-```
-
-### Schema Registry
-
-Si se utiliza Avro, configurar las propiedades correspondientes de Schema Registry en el fichero de propiedades.
-
-### Permisos
-
-El usuario o servicio que ejecute el motor debe tener permisos para:
-
-- Leer Landing.
-- Escribir Bronze.
-- Crear y utilizar checkpoints.
-- Leer la configuración.
-- Acceder a Kafka.
-- Acceder a Schema Registry cuando se utilice Avro.
-
----
-
-# 34. Resumen
-
-El proyecto proporciona un motor de ingesta configurable que permite centralizar la lógica de procesamiento y separar dicha lógica de la configuración de cada dataset.
-
-La solución soporta:
+El proyecto implementa un motor de ingesta configurable para FarmIA que permite procesar datos batch y streaming utilizando una arquitectura Lakehouse.
 
 ```text
                  FARMIA INGESTION ENGINE
@@ -1342,14 +807,16 @@ La solución soporta:
              └─────────────┬─────────────┘
                            │
                            ▼
-                       SPARK
+                         SPARK
                            │
                            ▼
-                    DELTA BRONZE
+                     DELTA BRONZE
                            │
                            ▼
                     SILVER / GOLD
                      (futuro)
 ```
 
-El diseño permite incorporar nuevos datasets principalmente mediante configuración, manteniendo una única implementación reutilizable del motor.
+El diseño separa la lógica del motor de la configuración de los datasets, permitiendo reutilizar el mismo motor para diferentes fuentes y formatos.
+
+El batch se ejecuta **cada hora** mediante la planificación de Databricks, mientras que las ingestas streaming se mantienen **continuamente activas** para procesar nuevos eventos en tiempo real.

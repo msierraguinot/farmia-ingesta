@@ -163,6 +163,7 @@ def write_streaming(
     sink = ingestion_config["sink"]
 
     destination_path = sink["path"]
+    destination_format = sink["format"]
     partition_columns = sink.get("partition_columns", [])
 
     # Configuramos la escritura de los eventos en Bronze utilizando Delta y un checkpoint independiente por dataset
@@ -170,7 +171,7 @@ def write_streaming(
     # mergeSchema: Permite que Delta incorpore columnas nuevas al esquema de destino
     writer = (
         df.writeStream
-        .format("delta")
+        .format(destination_format)
         .option(
             "checkpointLocation",
             f"{destination_path}_checkpoint"
